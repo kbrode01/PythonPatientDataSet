@@ -5,13 +5,21 @@ from datetime import datetime, timedelta
 # Set seed for reproducibility
 np.random.seed(42)
 
-n_cases = 300  # Feel free to increase to 500–1000
+n_cases = 300  #adjust for desired volume
 
 # Business days in 2025 for realistic case dates
 start_date = datetime(2025, 1, 1)
 dates = [start_date + timedelta(days=i) for i in range(365) if (start_date + timedelta(days=i)).weekday() < 5]
 case_dates = np.random.choice(dates, size=n_cases, replace=True)
 case_dates.sort()
+
+# === Expanded Intubation / Airway Management Types ===
+intubation_types = [
+    'DL - Direct Laryngoscopy', 'GlideScope Size 3', 'GlideScope Size 4',
+    'LMA', 'MAC (Monitored Anesthesia Care)', 'Video Laryngoscopy',
+    'Fiberoptic', 'Nasal Intubation', 'Boujie Assisted'
+]
+intubation_probs = [0.25, 0.20, 0.18, 0.15, 0.10, 0.05, 0.04, 0.02, 0.01]
 
 # Common procedures with approximate probabilities
 procedures = [
