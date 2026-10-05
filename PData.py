@@ -2,18 +2,34 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 
-np.random.seed(42)
+# ============================================================
+# CONFIGURATION
+# ============================================================
 
-# ===== CONFIG =====
+RANDOM_SEED = 42
+np.random.seed(RANDOM_SEED)
 
-# Number of days to generate
-n_days = 10  # adjust as needed
+# Number of synthetic days to generate
+N_DAYS = 10
 
-# Base date
-start_date = datetime(2025, 1, 1)
+# Synthetic data only. This does not represent real Mayo data.
+START_DATE = datetime(2026, 10, 5)
 
-# OR rooms (skip 13), plus cysto and MRI
-rooms = [
+# Approximate turnover time between cases
+MIN_TURNOVER_MINUTES = 15
+MAX_TURNOVER_MINUTES = 35
+
+# Actual case starts may vary from the scheduled start.
+# Negative values allow an occasional slightly early start.
+MIN_START_VARIANCE_MINUTES = -5
+MAX_START_VARIANCE_MINUTES = 30
+
+
+# ============================================================
+# OPERATING LOCATIONS
+# ============================================================
+
+ROOMS = [
     "OR1", "OR2",
     "OR3", "OR4",
     "OR5", "OR6",
@@ -30,8 +46,12 @@ rooms = [
     "FarscanMRI"
 ]
 
-# Service mapping per room with typical cases/day range
-room_services = {
+
+# ============================================================
+# ROOM / SERVICE CONFIGURATION
+# ============================================================
+
+ROOM_SERVICES = {
     "OR1":  {"service": "Cardiac", "min_cases": 1, "max_cases": 2},
     "OR2":  {"service": "Cardiac", "min_cases": 1, "max_cases": 2},
     "OR3":  {"service": "Abdominal Transplant", "min_cases": 1, "max_cases": 2},
@@ -62,174 +82,472 @@ room_services = {
     "FarscanMRI": {"service": "MRI Anesthesia", "min_cases": 1, "max_cases": 4},
 }
 
-# Case types per service (NO pediatrics, NO trauma)
-service_case_types = {
+
+# ============================================================
+# PROCEDURE TYPES
+# ============================================================
+
+SERVICE_CASE_TYPES = {
     "Cardiac": [
-        "CABG", "Valve Replacement", "Aortic Root Repair", "LVAD Placement"
+        "CABG",
+        "Valve Replacement",
+        "Aortic Root Repair",
+        "LVAD Placement"
     ],
     "Abdominal Transplant": [
-        "Liver Transplant", "Kidney Transplant", "Pancreas Transplant"
+        "Liver Transplant",
+        "Kidney Transplant",
+        "Pancreas Transplant"
     ],
     "ENT": [
-        "Tonsillectomy", "Sinus Surgery", "Thyroidectomy", "Parotidectomy"
+        "Tonsillectomy",
+        "Sinus Surgery",
+        "Thyroidectomy",
+        "Parotidectomy"
     ],
     "Upper Thoracic": [
-        "Lobectomy", "Esophagectomy", "Mediastinal Mass Resection"
+        "Lobectomy",
+        "Esophagectomy",
+        "Mediastinal Mass Resection"
     ],
     "General (Robot)": [
-        "Robotic Colectomy", "Robotic Hernia Repair", "Robotic Cholecystectomy"
+        "Robotic Colectomy",
+        "Robotic Hernia Repair",
+        "Robotic Cholecystectomy"
     ],
     "General": [
-        "Open Colectomy", "Appendectomy", "Open Hernia Repair", "Laparoscopic Cholecystectomy"
+        "Open Colectomy",
+        "Appendectomy",
+        "Open Hernia Repair",
+        "Laparoscopic Cholecystectomy"
     ],
     "Ortho": [
-        "Total Knee Replacement", "Total Hip Replacement", "ORIF Ankle", "Spinal Fusion"
+        "Total Knee Replacement",
+        "Total Hip Replacement",
+        "ORIF Ankle",
+        "Spinal Fusion"
     ],
     "Vascular": [
-        "Carotid Endarterectomy", "EVAR", "Fem-Pop Bypass"
+        "Carotid Endarterectomy",
+        "EVAR",
+        "Fem-Pop Bypass"
     ],
     "Neuro": [
-        "Craniotomy", "Spine Decompression", "Tumor Resection"
+        "Craniotomy",
+        "Spine Decompression",
+        "Tumor Resection"
     ],
     "IMRI": [
         "Intraoperative Brain MRI Case"
     ],
     "Cysto/Uro": [
-        "TURBT", "TURP", "Cystoscopy with Stent", "Ureteroscopy"
+        "TURBT",
+        "TURP",
+        "Cystoscopy with Stent",
+        "Ureteroscopy"
     ],
     "MRI Anesthesia": [
         "MRI with GA - Adult"
-    ]
+    ],
 }
 
-# Duration distributions (mean minutes per case type)
-case_duration_means = {
+
+# ============================================================
+# PROCEDURE DURATION MEANS
+# ============================================================
+
+CASE_DURATION_MEANS = {
     # Cardiac
-    "CABG": 240, "Valve Replacement": 210, "Aortic Root Repair": 270, "LVAD Placement": 300,
+    "CABG": 240,
+    "Valve Replacement": 210,
+    "Aortic Root Repair": 270,
+    "LVAD Placement": 300,
+
     # Abdominal Transplant
-    "Liver Transplant": 360, "Kidney Transplant": 240, "Pancreas Transplant": 300,
+    "Liver Transplant": 360,
+    "Kidney Transplant": 240,
+    "Pancreas Transplant": 300,
+
     # ENT
-    "Tonsillectomy": 60, "Sinus Surgery": 120, "Thyroidectomy": 150, "Parotidectomy": 180,
+    "Tonsillectomy": 60,
+    "Sinus Surgery": 120,
+    "Thyroidectomy": 150,
+    "Parotidectomy": 180,
+
     # Upper Thoracic
-    "Lobectomy": 180, "Esophagectomy": 300, "Mediastinal Mass Resection": 240,
+    "Lobectomy": 180,
+    "Esophagectomy": 300,
+    "Mediastinal Mass Resection": 240,
+
     # General (Robot)
-    "Robotic Colectomy": 180, "Robotic Hernia Repair": 120, "Robotic Cholecystectomy": 90,
+    "Robotic Colectomy": 180,
+    "Robotic Hernia Repair": 120,
+    "Robotic Cholecystectomy": 90,
+
     # General
-    "Open Colectomy": 180, "Appendectomy": 75, "Open Hernia Repair": 90, "Laparoscopic Cholecystectomy": 65,
+    "Open Colectomy": 180,
+    "Appendectomy": 75,
+    "Open Hernia Repair": 90,
+    "Laparoscopic Cholecystectomy": 65,
+
     # Ortho
-    "Total Knee Replacement": 140, "Total Hip Replacement": 130, "ORIF Ankle": 90, "Spinal Fusion": 180,
+    "Total Knee Replacement": 140,
+    "Total Hip Replacement": 130,
+    "ORIF Ankle": 90,
+    "Spinal Fusion": 180,
+
     # Vascular
-    "Carotid Endarterectomy": 120, "EVAR": 180, "Fem-Pop Bypass": 180,
+    "Carotid Endarterectomy": 120,
+    "EVAR": 180,
+    "Fem-Pop Bypass": 180,
+
     # Neuro
-    "Craniotomy": 240, "Spine Decompression": 180, "Tumor Resection": 300,
+    "Craniotomy": 240,
+    "Spine Decompression": 180,
+    "Tumor Resection": 300,
+
     # IMRI
     "Intraoperative Brain MRI Case": 180,
+
     # Cysto/Uro
-    "TURBT": 60, "TURP": 90, "Cystoscopy with Stent": 45, "Ureteroscopy": 75,
+    "TURBT": 60,
+    "TURP": 90,
+    "Cystoscopy with Stent": 45,
+    "Ureteroscopy": 75,
+
     # MRI Anesthesia
-    "MRI with GA - Adult": 90
+    "MRI with GA - Adult": 90,
 }
 
-# Airway patterns per service
-service_airway_patterns = {
-    "Cardiac": ["DL - Direct Laryngoscopy", "Video Laryngoscopy", "GlideScope Size 3", "GlideScope Size 4"],
-    "Abdominal Transplant": ["DL - Direct Laryngoscopy", "Video Laryngoscopy", "GlideScope Size 3"],
-    "ENT": ["DL - Direct Laryngoscopy", "GlideScope Size 3", "GlideScope Size 4", "Fiberoptic"],
-    "Upper Thoracic": ["DL - Direct Laryngoscopy", "Video Laryngoscopy", "GlideScope Size 4"],
-    "General (Robot)": ["DL - Direct Laryngoscopy", "LMA", "Video Laryngoscopy"],
-    "General": ["DL - Direct Laryngoscopy", "LMA"],
-    "Ortho": ["DL - Direct Laryngoscopy", "LMA", "MAC (Monitored Anesthesia Care)"],
-    "Vascular": ["DL - Direct Laryngoscopy", "Video Laryngoscopy"],
-    "Neuro": ["DL - Direct Laryngoscopy", "Video Laryngoscopy", "Fiberoptic"],
-    "IMRI": ["DL - Direct Laryngoscopy", "Video Laryngoscopy"],
-    "Cysto/Uro": ["LMA", "MAC (Monitored Anesthesia Care)", "DL - Direct Laryngoscopy"],
-    "MRI Anesthesia": ["LMA", "MAC (Monitored Anesthesia Care)"],
+
+# ============================================================
+# ANESTHESIA TYPES
+# ============================================================
+
+SERVICE_ANESTHESIA_TYPES = {
+    "Cardiac": ["General"],
+    "Abdominal Transplant": ["General"],
+    "ENT": ["General"],
+    "Upper Thoracic": ["General"],
+    "General (Robot)": ["General"],
+    "General": ["General", "MAC"],
+    "Ortho": ["General", "MAC"],
+    "Vascular": ["General", "MAC"],
+    "Neuro": ["General"],
+    "IMRI": ["General"],
+    "Cysto/Uro": ["General", "MAC"],
+    "MRI Anesthesia": ["General", "MAC"],
 }
 
-# Small cross-over probability
-CROSSOVER_PROB = 0.05
 
+# ============================================================
+# SAMPLING FUNCTIONS
+# ============================================================
 
 def sample_case_type(service):
-    if np.random.rand() > CROSSOVER_PROB:
-        return np.random.choice(service_case_types[service])
-    else:
-        other_services = [s for s in service_case_types.keys() if s != service]
-        other_service = np.random.choice(other_services)
-        return np.random.choice(service_case_types[other_service])
+    """
+    Select a procedure appropriate for the room's assigned service.
+
+    Cross-service randomization is intentionally excluded.
+    Add-on and overflow behavior should be modeled explicitly later.
+    """
+    return np.random.choice(SERVICE_CASE_TYPES[service])
 
 
-def sample_duration(case_type):
-    mean = case_duration_means.get(case_type, 120)
-    dur = int(np.round(np.random.normal(mean, mean * 0.25)))
-    return max(30, dur)
+def sample_scheduled_duration(case_type):
+    """
+    Generate the scheduled duration around the typical duration for
+    the procedure.
+    """
+    mean = CASE_DURATION_MEANS.get(case_type, 120)
+
+    duration = int(
+        np.round(
+            np.random.normal(
+                loc=mean,
+                scale=mean * 0.15
+            )
+        )
+    )
+
+    return max(30, duration)
 
 
-def sample_airway(service):
-    return np.random.choice(service_airway_patterns.get(service, ["DL - Direct Laryngoscopy"]))
+def sample_actual_duration(scheduled_duration):
+    """
+    Generate an actual duration that differs somewhat from the
+    scheduled duration.
+    """
+    duration = int(
+        np.round(
+            np.random.normal(
+                loc=scheduled_duration,
+                scale=max(10, scheduled_duration * 0.15)
+            )
+        )
+    )
 
+    return max(30, duration)
+
+
+def sample_anesthesia_type(service):
+    return np.random.choice(
+        SERVICE_ANESTHESIA_TYPES.get(service, ["General"])
+    )
+
+
+def sample_start_variance():
+    """
+    Generate the difference between scheduled and actual start time.
+    Positive values represent delays.
+    """
+    return int(
+        np.random.randint(
+            MIN_START_VARIANCE_MINUTES,
+            MAX_START_VARIANCE_MINUTES + 1
+        )
+    )
+
+
+def sample_turnover():
+    return int(
+        np.random.randint(
+            MIN_TURNOVER_MINUTES,
+            MAX_TURNOVER_MINUTES + 1
+        )
+    )
+
+
+# ============================================================
+# DAILY SCHEDULE GENERATION
+# ============================================================
 
 def generate_day_schedule(day_index):
-    date = start_date + timedelta(days=day_index)
+    date = START_DATE + timedelta(days=day_index)
     cases = []
 
-    for room in rooms:
-        svc_info = room_services[room]
+    daily_case_sequence = 1
+
+    for room in ROOMS:
+        svc_info = ROOM_SERVICES[room]
+
         service = svc_info["service"]
-        n_cases = np.random.randint(svc_info["min_cases"], svc_info["max_cases"] + 1)
 
-        base_hour = np.random.choice(range(7, 10))
-        current_start = datetime.combine(date.date(), datetime.min.time()) + timedelta(hours=base_hour)
+        n_cases = np.random.randint(
+            svc_info["min_cases"],
+            svc_info["max_cases"] + 1
+        )
 
-        for i in range(n_cases):
-            case_type = sample_case_type(service)
-            duration = sample_duration(case_type)
+        # First scheduled case starts between 07:00 and 08:00.
+        first_case_minutes = np.random.randint(0, 61)
 
-            turnover = np.random.randint(10, 30)
-            if i > 0:
-                current_start += timedelta(minutes=turnover)
+        scheduled_start = (
+            datetime.combine(date.date(), datetime.min.time())
+            + timedelta(hours=7, minutes=int(first_case_minutes))
+        )
 
-            scheduled_start = datetime.combine(date.date(), datetime.min.time()) + timedelta(hours=base_hour + i)
-            delay_minutes = int(np.round((current_start - scheduled_start).total_seconds() / 60))
+        previous_actual_end = None
 
-            end_time = current_start + timedelta(minutes=duration)
+        for case_index in range(n_cases):
+            procedure_type = sample_case_type(service)
+
+            scheduled_duration = sample_scheduled_duration(
+                procedure_type
+            )
+
+            # Cases after the first are scheduled after the preceding
+            # scheduled case plus a synthetic turnover period.
+            if case_index > 0:
+                scheduled_start = (
+                    previous_scheduled_end
+                    + timedelta(minutes=sample_turnover())
+                )
+
+            start_variance = sample_start_variance()
+
+            proposed_actual_start = (
+                scheduled_start
+                + timedelta(minutes=start_variance)
+            )
+
+            # Prevent physically impossible overlap in the same room.
+            if previous_actual_end is not None:
+                minimum_actual_start = (
+                    previous_actual_end
+                    + timedelta(minutes=sample_turnover())
+                )
+
+                actual_start = max(
+                    proposed_actual_start,
+                    minimum_actual_start
+                )
+            else:
+                actual_start = proposed_actual_start
+
+            actual_duration = sample_actual_duration(
+                scheduled_duration
+            )
+
+            scheduled_end = (
+                scheduled_start
+                + timedelta(minutes=scheduled_duration)
+            )
+
+            actual_end = (
+                actual_start
+                + timedelta(minutes=actual_duration)
+            )
+
+            case_number = (
+                f"PA-{date.strftime('%Y%m%d')}-"
+                f"{daily_case_sequence:04d}"
+            )
 
             cases.append({
-                "DayIndex": day_index + 1,
-                "CaseDate": date.date(),
-                "OR_Room": room,
+                "CaseNumber": case_number,
+                "Location": room,
                 "Service": service,
-                "CaseType": case_type,
-                "StartDateTime": current_start,
-                "EndDateTime": end_time,
-                "DurationMinutes": duration,
-                "DelayMinutes": delay_minutes,
-                "AirwayManagement": sample_airway(service),
-                "PatientID": np.random.randint(100000, 999999),
-                "Age": int(np.clip(np.round(np.random.normal(55, 18)), 18, 95)),
-                "AnesthesiologistID": np.random.choice(range(101, 111)),
-                "Complications": np.random.choice(
-                    ["", "Hypotension", "Bradycardia", "Nausea", "Allergic Reaction", "Airway Issue", "Post-op Pain"],
-                    p=[0.70, 0.08, 0.06, 0.07, 0.03, 0.04, 0.02]
-                )
+                "ProcedureType": procedure_type,
+                "ProcedureCode": "",
+                "ProcedureCodeSystem": "",
+                "ScheduledStart": scheduled_start,
+                "ScheduledDurationMinutes": scheduled_duration,
+                "ActualStart": actual_start,
+                "ActualEnd": actual_end,
+                "ActualDurationMinutes": actual_duration,
+                "AnesthesiaType": sample_anesthesia_type(service),
+                "Status": "Completed",
+                "Notes": "",
+                "IsSynthetic": True,
             })
+
+            previous_scheduled_end = scheduled_end
+            previous_actual_end = actual_end
+            daily_case_sequence += 1
 
     return cases
 
 
-# ===== GENERATE DATA =====
+# ============================================================
+# DATASET GENERATION
+# ============================================================
 
-all_cases = []
-for d in range(n_days):
-    all_cases.extend(generate_day_schedule(d))
+def generate_dataset():
+    all_cases = []
 
-df = pd.DataFrame(all_cases)
+    for day_index in range(N_DAYS):
+        all_cases.extend(
+            generate_day_schedule(day_index)
+        )
 
-print(df.head(20).to_string(index=False))
-print(f"\nTotal rows: {len(df)}")
-print(f"Avg cases per day: {len(df) / n_days:.1f}")
-print(f"Avg duration: {df['DurationMinutes'].mean():.1f} min")
-print(f"Avg delay: {df['DelayMinutes'].mean():.1f} min")
+    return pd.DataFrame(all_cases)
 
-# Uncomment to save
-# df.to_csv("synthetic_main_or_schedule.csv", index=False)
+
+# ============================================================
+# VALIDATION
+# ============================================================
+
+def validate_dataset(df):
+    print("\n===== VALIDATION =====")
+
+    print(f"Total cases: {len(df)}")
+
+    daily_counts = (
+        df.groupby(df["ScheduledStart"].dt.date)
+        .size()
+    )
+
+    print(
+        f"Average cases/day: "
+        f"{daily_counts.mean():.1f}"
+    )
+
+    print(
+        f"Minimum cases/day: "
+        f"{daily_counts.min()}"
+    )
+
+    print(
+        f"Maximum cases/day: "
+        f"{daily_counts.max()}"
+    )
+
+    print(
+        f"Average scheduled duration: "
+        f"{df['ScheduledDurationMinutes'].mean():.1f} min"
+    )
+
+    print(
+        f"Average actual duration: "
+        f"{df['ActualDurationMinutes'].mean():.1f} min"
+    )
+
+    delay_minutes = (
+        df["ActualStart"]
+        - df["ScheduledStart"]
+    ).dt.total_seconds() / 60
+
+    print(
+        f"Average start variance: "
+        f"{delay_minutes.mean():.1f} min"
+    )
+
+    duplicate_case_numbers = (
+        df["CaseNumber"].duplicated().sum()
+    )
+
+    print(
+        f"Duplicate CaseNumbers: "
+        f"{duplicate_case_numbers}"
+    )
+
+    # Verify that actual cases do not overlap within a room.
+    overlap_count = 0
+
+    sorted_df = df.sort_values(
+        ["Location", "ActualStart"]
+    )
+
+    for _, room_df in sorted_df.groupby("Location"):
+        previous_end = None
+
+        for _, row in room_df.iterrows():
+            if (
+                previous_end is not None
+                and row["ActualStart"] < previous_end
+            ):
+                overlap_count += 1
+
+            previous_end = row["ActualEnd"]
+
+    print(
+        f"Same-room actual overlaps: "
+        f"{overlap_count}"
+    )
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+if __name__ == "__main__":
+    df = generate_dataset()
+
+    print("\n===== SAMPLE =====")
+    print(
+        df.head(20).to_string(index=False)
+    )
+
+    validate_dataset(df)
+
+    output_file = "synthetic_surgical_cases.csv"
+
+    df.to_csv(
+        output_file,
+        index=False
+    )
+
+    print(
+        f"\nSynthetic dataset written to: "
+        f"{output_file}"
+    )
