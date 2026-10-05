@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
+from pathlib import Path
 
 # ============================================================
 # CONFIGURATION
@@ -10,7 +11,7 @@ RANDOM_SEED = 42
 np.random.seed(RANDOM_SEED)
 
 # Number of synthetic days to generate
-N_DAYS = 10
+N_DAYS = 1
 
 # Synthetic data only. This does not represent real Mayo data.
 START_DATE = datetime(2026, 10, 5)
@@ -540,7 +541,10 @@ if __name__ == "__main__":
 
     validate_dataset(df)
 
-    output_file = "synthetic_surgical_cases.csv"
+    output_dir = Path("output")
+    output_dir.mkdir(exist_ok=True)
+
+    output_file = output_dir / "synthetic_surgical_cases.csv"
 
     df.to_csv(
         output_file,
