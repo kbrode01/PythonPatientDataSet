@@ -1,0 +1,19 @@
+# Generated synthetic datasets
+output/
+*.csv
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Python virtual environments
+.venv/
+venv/
+
+# IDE files
+.idea/
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
